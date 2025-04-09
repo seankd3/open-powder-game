@@ -182,15 +182,6 @@ class Engine {
     update() {
         if (!this.active) return 0;
         
-        // Reset updated flags
-        for (let y = 0; y < this.height; y++) {
-            for (let x = 0; x < this.width; x++) {
-                if (this.grid[y][x]) {
-                    this.grid[y][x].updated = false;
-                }
-            }
-        }
-        
         // Track how many particles were updated
         let updatedCount = 0;
         
@@ -211,6 +202,15 @@ class Engine {
         } else {
             // No gravity, random order
             updateOrder = this._getRandomOrder();
+        }
+        
+        // Performance optimization: only reset updated flags for particles we're about to update
+        // This is much faster than resetting the entire grid
+        for (const [x, y] of updateOrder) {
+            const particle = this.grid[y][x];
+            if (particle) {
+                particle.updated = false;
+            }
         }
         
         // Track new active regions
@@ -254,6 +254,22 @@ class Engine {
         // Add new active regions to the tracking set
         for (const region of newActiveRegions) {
             this.activeRegions.add(region);
+        }
+        
+        // Ensure we always have some active regions for animation to continue
+        // This solves the issue of simulation stopping when no particles are moving
+        if (this.activeRegions.size === 0 && this.particleCount > 0) {
+            // Add a few random particles to the active regions to keep things moving
+            for (let i = 0; i < Math.min(10, this.particleCount); i++) {
+                for (let y = 0; y < this.height; y++) {
+                    for (let x = 0; x < this.width; x++) {
+                        if (this.grid[y][x]) {
+                            this._markRegionActive(x, y);
+                            break;
+                        }
+                    }
+                }
+            }
         }
         
         this.updateCount++;

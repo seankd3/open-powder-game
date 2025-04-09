@@ -114,16 +114,42 @@ class Renderer {
             return;
         }
         
+        // Add active regions from engine to dirty regions
+        // This ensures animation continues even when user isn't interacting
+        for (const region of this.engine.activeRegions) {
+            this.dirtyRegions.add(region);
+        }
+        
         // Optimization: Only update dirty regions
         if (this.dirtyRegions.size > 0) {
-            // Use existing image data for partial updates
-            const existingImgData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
-            const existingData = existingImgData.data;
+            // Performance optimization: If too many dirty regions, do a full redraw instead
+            // This is faster than updating many individual regions
+            if (this.dirtyRegions.size > this.engine.width * this.engine.height * 0.2) { // 20% threshold
+                this.fullRedraw = true;
+                this.render(true);
+                return;
+            }
             
-            // Copy existing data into our buffer
-            const uint8view = new Uint8ClampedArray(existingData.buffer);
-            this.imageDataBuffer = uint8view.buffer.slice(0);
-            this.imageDataView = new Uint32Array(this.imageDataBuffer);
+            // Use existing image data for partial updates
+            // Only get the image data once to improve performance
+            if (!this._cachedImageData || this._framesSinceCache > 5) {
+                this._cachedImageData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+                this._framesSinceCache = 0;
+            } else {
+                this._framesSinceCache++;
+            }
+            
+            const existingData = this._cachedImageData.data;
+            
+            // Copy existing data into our buffer if needed
+            if (!this.imageDataBuffer || this.imageDataBuffer.byteLength !== existingData.buffer.byteLength) {
+                this.imageDataBuffer = new ArrayBuffer(existingData.buffer.byteLength);
+                this.imageDataView = new Uint32Array(this.imageDataBuffer);
+                
+                // Copy the data
+                const uint8view = new Uint8ClampedArray(this.imageDataBuffer);
+                uint8view.set(new Uint8Array(existingData.buffer));
+            }
             
             // Only update dirty cells
             for (const key of this.dirtyRegions) {
@@ -131,7 +157,7 @@ class Renderer {
                 this.drawCell(x, y, imgData);
             }
             
-            // Update the canvas with new data
+            // Batch update the canvas with new data
             const updatedView = new Uint8ClampedArray(this.imageDataBuffer);
             this.imageData.data.set(updatedView);
             this.ctx.putImageData(this.imageData, 0, 0);
